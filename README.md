@@ -396,7 +396,22 @@ Result: 3 replans (predicted 4–6), 0 needless, 0 blocked, 25.2 s. The partial-
 _TODO_
 
 ### Replan trigger
-_TODO_
+_TODO: explanation_
+
+```
+scenario      result           ticks  blocked  plans  replans  needless
+-----------------------------------------------------------------------
+open          REACHED            121        0      1        0         0
+boulders      REACHED            126        0      4        3         0
+wall          REACHED            134        0     14       13         0
+popup         REACHED            129        0      5        4         0
+goal-blocked  REACHED            164        0      4        2         0
+random 1      REACHED            137        0     10        9         0
+random 2      REACHED            131        0     10        9         0
+random 3      REACHED            138        0      6        5         0
+```
+
+Unseen seeds: 11 → 4 replans, 42 → 9, 99 → 5; all reached, 0 blocked, 0 needless.
 
 ### Unknown cells
 _TODO_
