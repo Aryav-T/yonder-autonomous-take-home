@@ -390,6 +390,7 @@ Reasoning:
   scorer's own definition of a path that is no longer fine.
 
 **Result:** _(filled in after running, see below)_
+Result: 3 replans (predicted 4–6), 0 needless, 0 blocked, 25.2 s. The partial-visibility and gradual-reveal predictions held: boulder #1 caused a replan at t=0.4 s, and boulder #2 caused two on consecutive ticks (4.2 s, 4.4 s). The wrong assumption was that each detour returns to the original diagonal. The detour around #2 put the path on the line y = x + 3, about 1.8 m off the original route. A* placed the straight steps at the start and end of the path, so the long diagonal was offset. That line passes 0.35–0.7 m clear of boulders #3 and #4, so they never invalidated it.
 
 ### Heuristic
 _TODO_

@@ -83,8 +83,9 @@ class PlannerNode(Node):
         replan, reason = self.needs_replan(grid, rover_xy)
         if replan:
             new_path = self.plan(grid, rover_xy, goal_xy)
-            self.publish_path(new_path, stamp)
-            self.record_plan(new_path, stamp, reason)
+            if new_path or self.path_xy != []:
+                self.publish_path(new_path, stamp)
+                self.record_plan(new_path, stamp, reason)
 
         self.print_status(stamp)
 
@@ -118,6 +119,12 @@ class PlannerNode(Node):
         """
         if self.path_xy is None:
             return True, "initial plan"
+        if not self.path_xy:
+            return True, "no route last time, retrying"
+
+        idx = next_waypoint_index(self.path_xy, rover_xy)
+        if not path_is_valid(grid, self.path_xy, idx + 1):
+            return True, f"path blocked ahead (rover at waypoint {idx}/{len(self.path_xy) - 1})"
         return False, ""
 
     def plan(self, grid: Grid, rover_xy, goal_xy):
