@@ -364,18 +364,59 @@ We don't expect a perfect implementation. Those who show genuine effort and lear
 
 ## Your write-up
 
-*Candidates: replace this section with your own short write-up. Keep it to what a teammate would need to trust your implementation. Numbers from your own runs beat adjectives.*
+### Prediction
 
-- **Prediction.** Before running `boulders`: how many replans did you expect, and why? What did you get?
-- **Heuristic.** Which one, and why is it safe for an 8-connected grid? What goes wrong with one that overestimates? (Try it. What did you see?)
-- **Replan trigger.** Exactly what makes you replan? What deliberately does *not*? Paste your `python sim/launch.py --all` table.
-- **Unknown cells.** How does your planner treat them, and why? What happens on the very first tick under the other choice?
-- **Rover size.** How do you account for it? What happens to the run if you don't?
-- **No route.** What do you publish when there is no path, and what would go wrong if you published nothing?
-- **Time.** Which clock does your monitoring output use, and why?
-- **Ambiguity.** What did the task leave underspecified, and what call did you make?
-- **Testing.** What did you check beyond the provided tests? Which scenario or picture revealed a bug of yours?
-- **Stretch goals.** Which did you attempt, and how far did you get? (For Part 2A: what changed between your Part 1 planner and your final one, in numbers?)
+**Expected: about 4–6 replans (best guess 5).**
+
+From `sim/world.py`: `boulders` has 10 boulders. 4 sit directly on the
+start→goal line (at 22%, 42%, 62%, 83% of the route, 1.5–2.0 m wide). The
+other 6 are 3.9–12.4 m off it, far outside the scorer's 1 m (2-cell) threat
+zone, so I expect them to trigger nothing.
+
+Reasoning:
+- My first plan treats unknown cells as free, so it runs along the diagonal
+  through all 4 on-route boulders. Each one invalidates the path when the
+  rover sees it (8 m sensor range), so at least ~1 replan per on-route boulder.
+- Boulder #1's nearest corner is ~7 m from the start, so part of it is
+  visible on tick 0 and the initial plan already dodges that corner. The
+  unseen rest of it is still "free", so I still expect a replan for it.
+- The sensor edge sweeps across each boulder over several ticks (the rover
+  moves 0.3 m per tick). A detour planned around the first visible cells
+  can be clipped by the next ones, so some boulders may cost 2 replans.
+- After each detour the new path heads back toward the goal roughly
+  parallel to the diagonal, so it still crosses the next on-route boulder.
+- I expect 0 needless replans: I only replan when a waypoint still ahead is
+  on or beside an obstacle in the inflated grid, which matches the
+  scorer's own definition of a path that is no longer fine.
+
+**Result:** _(filled in after running, see below)_
+
+### Heuristic
+_TODO_
+
+### Replan trigger
+_TODO_
+
+### Unknown cells
+_TODO_
+
+### Rover size
+_TODO_
+
+### No route
+_TODO_
+
+### Time
+_TODO_
+
+### Ambiguity
+_TODO_
+
+### Testing
+_TODO_
+
+### Stretch goals
+_TODO_
 
 ---
 
