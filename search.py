@@ -14,9 +14,17 @@ Movement rules (fixed, so the tests can check them)
 * Cells outside the grid don't exist.
 """
 
-from typing import List, Optional
-
+import heapq
+import math
+from typing import Dict, List, Optional
 from grid_utils import Grid, Cell
+from sim.grid_values import OCCUPIED, UNKNOWN
+
+SQRT2 = math.sqrt(2.0)
+NEIGHBOURS = [
+    (1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
+    (1, 1, SQRT2), (1, -1, SQRT2), (-1, 1, SQRT2), (-1, -1, SQRT2),
+]
 
 
 def heuristic(a: Cell, b: Cell) -> float:
@@ -30,8 +38,9 @@ def heuristic(a: Cell, b: Cell) -> float:
     checks this, and it is worth understanding why some very common heuristics
     fail it on an 8-connected grid.
     """
-    # TODO: implement
-    raise NotImplementedError("heuristic")
+    dr = abs(a[0] - b[0])
+    dc = abs(a[1] - b[1])
+    return SQRT2 * min(dr, dc) + (max(dr, dc) - min(dr, dc))
 
 
 def astar(grid: Grid, start: Cell, goal: Cell, unknown_is_free: bool = False) -> Optional[List[Cell]]:
@@ -57,5 +66,54 @@ def astar(grid: Grid, start: Cell, goal: Cell, unknown_is_free: bool = False) ->
       * Speed: a 100 x 100 grid must finish in well under a second. What data
         structure makes "give me the cheapest open node" fast?
     """
-    # TODO: implement
-    raise NotImplementedError("astar")
+    def passable(r: int, c: int) -> bool:
+        if not grid.in_bounds(r, c):
+            return False
+        v = grid.get(r, c)
+        if v == OCCUPIED:
+            return False
+        if v == UNKNOWN:
+            return unknown_is_free
+        return True
+
+    if not grid.in_bounds(*start) or not grid.in_bounds(*goal):
+        return None
+    if start == goal:
+        return [start]
+    if not passable(*goal):
+        return None
+
+    g_cost: Dict[Cell, float] = {start: 0.0}
+    came_from: Dict[Cell, Cell] = {}
+    closed = set()
+    counter = 0                                   # tie-breaker so heapq never compares cells
+    open_heap = [(heuristic(start, goal), counter, start)]
+
+    while open_heap:
+        _, _, current = heapq.heappop(open_heap)
+        if current in closed:                     # stale heap entry, a better one was already processed
+            continue
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            path.reverse()
+            return path
+        closed.add(current)
+
+        r, c = current
+        for dr, dc, step in NEIGHBOURS:
+            nr, nc = r + dr, c + dc
+            if (nr, nc) in closed or not passable(nr, nc):
+                continue
+            if dr != 0 and dc != 0 and not (passable(r + dr, c) and passable(r, c + dc)):
+                continue                          # would cut a corner
+            new_g = g_cost[current] + step
+            if new_g < g_cost.get((nr, nc), math.inf):
+                g_cost[(nr, nc)] = new_g
+                came_from[(nr, nc)] = current
+                counter += 1
+                heapq.heappush(open_heap, (new_g + heuristic((nr, nc), goal), counter, (nr, nc)))
+
+    return None
