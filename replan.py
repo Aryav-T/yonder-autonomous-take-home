@@ -24,8 +24,15 @@ def next_waypoint_index(path_xy: Sequence[Point], rover_xy: Point) -> int:
 
     Ties: return the lower index. `path_xy` is never empty when this is called.
     """
-    # TODO: implement
-    raise NotImplementedError("next_waypoint_index")
+    rx, ry = rover_xy
+    best_i = 0
+    best_d2 = float("inf")
+    for i, (x, y) in enumerate(path_xy):
+        d2 = (x - rx) ** 2 + (y - ry) ** 2  
+        if d2 < best_d2:
+            best_d2 = d2
+            best_i = i
+    return best_i
 
 
 def path_is_valid(grid: Grid, path_xy: Sequence[Point], start_index: int = 0) -> bool:
@@ -45,5 +52,12 @@ def path_is_valid(grid: Grid, path_xy: Sequence[Point], start_index: int = 0) ->
     only means something relative to one particular grid. Points in the world
     keep their meaning when the grid changes.
     """
-    # TODO: implement
-    raise NotImplementedError("path_is_valid")
+    if not path_xy:
+        return False
+    for x, y in path_xy[start_index:]:
+        row, col = grid.world_to_cell(x, y)    
+        if not grid.in_bounds(row, col):
+            return False
+        if grid.is_occupied(row, col):
+            return False
+    return True

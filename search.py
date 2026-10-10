@@ -86,12 +86,12 @@ def astar(grid: Grid, start: Cell, goal: Cell, unknown_is_free: bool = False) ->
     g_cost: Dict[Cell, float] = {start: 0.0}
     came_from: Dict[Cell, Cell] = {}
     closed = set()
-    counter = 0                                   # tie-breaker so heapq never compares cells
+    counter = 0                                  
     open_heap = [(heuristic(start, goal), counter, start)]
 
     while open_heap:
         _, _, current = heapq.heappop(open_heap)
-        if current in closed:                     # stale heap entry, a better one was already processed
+        if current in closed:                     
             continue
         if current == goal:
             path = [current]
@@ -108,7 +108,7 @@ def astar(grid: Grid, start: Cell, goal: Cell, unknown_is_free: bool = False) ->
             if (nr, nc) in closed or not passable(nr, nc):
                 continue
             if dr != 0 and dc != 0 and not (passable(r + dr, c) and passable(r, c + dc)):
-                continue                          # would cut a corner
+                continue                        
             new_g = g_cost[current] + step
             if new_g < g_cost.get((nr, nc), math.inf):
                 g_cost[(nr, nc)] = new_g
