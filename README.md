@@ -364,14 +364,18 @@ We don't expect a perfect implementation. Those who show genuine effort and lear
 
 ## Your write-up
 
+All numbers below come from my own runs on the clean sensor (Part 1).
+
 ### Prediction
 
-**Expected: about 4–6 replans (best guess 5).**
+*Written and committed (`prediction: boulders`) before I first ran `boulders`.*
+
+**Expected: 5.**
 
 From `sim/world.py`: `boulders` has 10 boulders. 4 sit directly on the
 start→goal line (at 22%, 42%, 62%, 83% of the route, 1.5–2.0 m wide). The
 other 6 are 3.9–12.4 m off it, far outside the scorer's 1 m (2-cell) threat
-zone, so I expect them to trigger nothing.
+zone, so I expected them to trigger nothing.
 
 Reasoning:
 - My first plan treats unknown cells as free, so it runs along the diagonal
@@ -379,24 +383,108 @@ Reasoning:
   rover sees it (8 m sensor range), so at least ~1 replan per on-route boulder.
 - Boulder #1's nearest corner is ~7 m from the start, so part of it is
   visible on tick 0 and the initial plan already dodges that corner. The
-  unseen rest of it is still "free", so I still expect a replan for it.
+  unseen rest of it is still "free", so I still expected a replan for it.
 - The sensor edge sweeps across each boulder over several ticks (the rover
   moves 0.3 m per tick). A detour planned around the first visible cells
   can be clipped by the next ones, so some boulders may cost 2 replans.
 - After each detour the new path heads back toward the goal roughly
   parallel to the diagonal, so it still crosses the next on-route boulder.
-- I expect 0 needless replans: I only replan when a waypoint still ahead is
+- I expected 0 needless replans: I only replan when a waypoint still ahead is
   on or beside an obstacle in the inflated grid, which matches the
   scorer's own definition of a path that is no longer fine.
 
-**Result:** _(filled in after running, see below)_
-Result: 3 replans (predicted 4–6), 0 needless, 0 blocked, 25.2 s. The partial-visibility and gradual-reveal predictions held: boulder #1 caused a replan at t=0.4 s, and boulder #2 caused two on consecutive ticks (4.2 s, 4.4 s). The wrong assumption was that each detour returns to the original diagonal. The detour around #2 put the path on the line y = x + 3, about 1.8 m off the original route. A* placed the straight steps at the start and end of the path, so the long diagonal was offset. That line passes 0.35–0.7 m clear of boulders #3 and #4, so they never invalidated it.
+**Result: 3 replans** 0 needless, 0 blocked, goal reached in 25.2 s.
+
+| t (s) | Event | Matches prediction? |
+|---|---|---|
+| 0.0 | initial plan is **37.6 m**, not open's 36.8 m: it already dodges the visible corner of boulder #1 | yes, partial visibility |
+| 0.4 | replan: more of boulder #1 comes into view and clips the detour | yes |
+| 4.2, 4.4 | two replans on consecutive ticks for boulder #2 | yes, gradual reveal costs 2 |
+| after 4.4 | **boulders #3 and #4 never trigger a replan** | **no** |
+
+The wrong assumption was the last bullet: that each detour returns to the
+original diagonal. In the `--visualize` picture, the path after t = 4.4 s goes
+briefly north, then runs one long diagonal on the line **y = x + 3**, then east
+to the goal. The original route is y = x + 0.5, so the path shifted about
+1.8 m sideways. There are many equal-cost paths on an 8-connected grid, and A*
+happened to put all the straight steps at the start and end, which made the
+long diagonal an offset parallel line. Checking the nearest corners against
+that line: boulder #3 is 0.7 m below it, boulder #4 is 0.35 m below it, and the
+off-route boulder at (3, 9) is 0.7 m above it. The path threads between them
+and never touches #3 or #4, so neither invalidates it.
 
 ### Heuristic
-_TODO_
+
+**Octile distance**: `h = √2·min(dr, dc) + |dr − dc|` (in `search.py`).
+
+This is the exact cost of the cheapest path on an *empty* 8-connected grid:
+use `min(dr, dc)` diagonal steps (√2 each) to close the shorter gap, then
+straight steps (1 each) for what's left. Obstacles can only make the real path
+longer, never shorter, so octile **never overestimates**, which is what A*
+needs to guarantee the shortest path. It is also *consistent*
+(`h(a) ≤ step(a, b) + h(b)` for every neighbour), which is why A* can safely
+finalise a cell the first time it pops it. My test
+`test_consistent_for_every_move` checks this for every move from a 20×20 block
+of cells.
+
+**What goes wrong with an overestimate (I tried it).** I temporarily replaced
+it with Manhattan (`dr + dc`), which charges 2 for a diagonal step that really
+costs √2. Three provided tests failed:
+
+| Test | Octile | Manhattan |
+|---|---|---|
+| `test_never_overestimates` (0,0)→(1,1) | h = 1.414 | h = **2.000** (true cost 1.414) |
+| `test_tricky_grid_seed_199` | 8.243 (optimal) | **9.414**, 14% longer |
+| `test_tricky_grid_seed_223` | 8.243 (optimal) | **8.828**, 7% longer |
+
+Why: A* stops when it pops the goal with cost C, trusting that every cell
+still waiting has `f ≥ C` and therefore can't lead to anything cheaper. An
+overestimating `h` inflates `f` on diagonal-heavy routes, so A* never explores
+them and finishes on a straighter, longer route. Manhattan's paths used fewer
+diagonals (1 and 2) than the optimal one (3). The speed test still passed,
+because a greedier heuristic explores fewer cells. That is the trade weighted
+A* makes on purpose, but it gives up the shortest-path guarantee. I reverted
+to octile.
 
 ### Replan trigger
-_TODO: explanation_
+
+Every tick, `needs_replan` (in `planner_node.py`) decides, on the **inflated**
+grid with the border marked as a wall:
+
+**Replan when:**
+1. **Never planned** → initial plan.
+2. **The last attempt found no route** (an empty path) → retry every tick,
+   because the world can change (the goal in `goal-blocked` clears after 8 s).
+   While still stuck, I don't republish the empty path, since nothing changed.
+3. **A waypoint ahead of the rover is blocked.** `next_waypoint_index` finds
+   the waypoint nearest the rover, then `path_is_valid` checks every waypoint
+   from **`idx + 1`** to the goal. Any one that is occupied or out of bounds
+   invalidates the path.
+
+**Deliberately do NOT replan when:**
+- The map changed somewhere that doesn't touch the remaining path. In `wall`,
+  the bottom of the wall comes into view around t ≈ 4.4 s but isn't on the
+  path, and the first replan is at 6.8 s, when the part of the wall the path
+  crosses comes into range.
+- An obstacle appears **behind** the rover. In `popup`, the "rock behind"
+  drops onto the rover's trail at tick 80, and my replan count stays at 3 from
+  7.2 s until 19.0 s.
+- The rover's **own** cell is inside an inflated zone. That's why checking
+  starts at `idx + 1`, not `idx`. If the rover drives past a newly seen rock,
+  its own cell gets inflated. Checking it would invalidate the path; the new
+  path would start from that same cell (A* is allowed to leave a blocked start),
+  so the next tick would invalidate it again, every tick until the rover drives
+  out. Replanning can't move the rover out of the cell it is already in, so I
+  skip it. My test `test_checking_from_rover_cell_would_replan_every_tick`
+  shows the brand-new path is "invalid" from `idx` and valid from `idx + 1`.
+
+**Why checking the inflated grid is the right test.** `sim/scoring.py` calls a
+replaced path "not fine" if a remaining waypoint is on or directly beside
+(up/down/left/right) an occupied cell. With a 0.5 m radius and 0.5 m cells, my
+circular inflation marks exactly that cross shape (test
+`test_radius_one_cell_marks_exactly_the_cross`). So whenever my check says a
+waypoint is blocked, the scorer agrees the old path was not fine, and none of my
+replans can be needless.
 
 ```
 scenario      result           ticks  blocked  plans  replans  needless
@@ -411,28 +499,167 @@ random 2      REACHED            131        0     10        9         0
 random 3      REACHED            138        0      6        5         0
 ```
 
-Unseen seeds: 11 → 4 replans, 42 → 9, 99 → 5; all reached, 0 blocked, 0 needless.
+Unseen seeds I also ran: **11 → 4 replans, 42 → 9, 99 → 5**. All reached the
+goal, 0 blocked, 0 needless. In every run, my node's `replan_count` matched the
+scoreboard's count.
+
+**Why `wall` needs 13 replans, and why they're not needless.** All 13 happen
+between 6.8 s and 11.0 s. The wall (x ∈ [−0.5, 0.5], y from −15 up to 8) is
+revealed bit by bit as the rover drives up beside it. Since unknown is treated
+as free, each new plan goes over the top of the *part of the wall seen so far*.
+The rover moves 0.3 m per tick, a bit more wall appears, the planned crossing is
+now blocked, and it replans again. The path lengths show the crossing point
+creeping upward: 26.7 → 27.3 → 26.5 → … → 24.1 m. Once the real top and the gap
+are visible, there are no more replans. Each one was triggered by a new obstacle
+cell on the path ahead, which is why the scorer counts 0 needless. The same
+clustering on consecutive ticks shows up in random seed 42 (12.2, 12.4, 12.6 s).
+
+**Pop-ups get a same-tick reaction.** Seed 42: `rock ahead #1` appears at tick
+55 and I replan at tick 55; `#2` at tick 72, replan at tick 72. Seed 99: ticks 26
+and 86, both same tick. `popup`: tick 17 and tick 95, both same tick.
 
 ### Unknown cells
-_TODO_
+
+My planner treats **unknown cells as free** (`astar(..., unknown_is_free=True)`),
+and `path_is_valid` treats them as fine.
+
+The rover only sees an 8 m circle, but the goal is 36.8 m away. On the very first
+tick, the goal cell and almost the whole map are unknown. Under the other choice
+(unknown = blocked), the goal itself counts as blocked, so `astar` returns `None`
+immediately and the planner publishes an empty path: the rover never moves.
+
+I checked this on `open` by temporarily switching the flag to `False`:
+
+```
+[planner t=   0.0s] NO ROUTE (initial plan) -> published empty path (stop)
+...
+ Result             STALLED: rover made no progress for 30 s (gave up at t=30.0 s)
+ Distance driven    0.0 m   (straight line start to goal is 36.8 m)
+```
+
+No route on tick 0, and none for the next 30 s either, even though my planner
+retries every tick. It's a deadlock, not a slow start: the rover never moves, so
+it never observes new ground, so the goal stays unknown (= blocked) forever. With
+the flag on, the same scenario reaches the goal with 1 plan.
+
+My test `test_unknown_blocked_means_no_route_at_all` reproduces it offline with
+a tick-0-style grid (an 8 m known circle around the start, everything else
+unknown): `None` with the flag off, the 52-step diagonal with it on.
+
+The optimism has a cost, and replanning is what pays it: the plan is only as
+good as what's been seen, so it gets corrected as the map fills in (e.g. the 13
+replans in `wall`).
 
 ### Rover size
-_TODO_
+
+Two things in `safe_grid`, which builds the grid both planning and validity
+checks use:
+
+1. **Inflate every obstacle by `msg.robot_radius_m` (0.5 m = 1 cell)**, a
+   circular neighbourhood around each occupied cell. A* then plans for a point,
+   and any route the point can take keeps the rover's centre at least one cell
+   from every obstacle.
+2. **Mark the arena border as a wall.** Nothing in the grid marks it. The
+   outermost ring of cell centres is 0.25 m from the edge, less than the 0.5 m
+   radius, so I mark that ring occupied. The next ring is 0.75 m from the edge,
+   which is safe. The ring count is computed from the radius, not hard-coded.
+
+Plus one rule in A*: **no corner cutting**. A diagonal move needs both side
+cells passable, so the rover can't slip between two obstacles that touch at a
+corner.
+
+**Is circular inflation enough?** It leaves an obstacle's diagonal neighbours
+free. A rover centre at a diagonal neighbour is √2·0.25 = 0.354 m from the
+obstacle square's nearest corner. `world.py` emergency-stops only when the body
+(`BODY_RADIUS_M = 0.3`) gets closer than 0.3 m to a cell's square, so 0.354 m is
+safe. The 0.5 m planning radius already includes a 0.2 m margin. This is also
+covered by a test.
+
+**Without it:** I temporarily set the inflation radius to 0 (keeping the border
+wall) and ran `--all`:
+
+```
+scenario      result           ticks  blocked  plans  replans  needless
+-----------------------------------------------------------------------
+open          REACHED            121        0      1        0         0
+boulders      STALLED            173      150      3        2         0
+wall          STALLED            208      150     14       13         0
+popup         STALLED            182      150      2        1         0
+goal-blocked  STALLED            187      150      3        2         0
+random 1      STALLED            182      150      8        7         0
+random 2      STALLED            198      150     10        9         0
+random 3      STALLED            180      150      2        1         0
+```
+
+Every scenario with an obstacle stalls with exactly **150 blocked ticks**, which
+is 30 s at 0.2 s per tick: the simulator's give-up timer. Without inflation, A*
+plans through cells directly beside a boulder. A rover centre there is 0.25 m
+from the boulder's square, inside its 0.3 m body, so the sim emergency-stops it.
+The rover never recovers because my validity check uses the same un-inflated
+grid: the waypoint isn't *on* an occupied cell, so the path still looks valid and
+no replan is triggered. Inflation is what makes "valid" in my planner mean the
+same thing as "collision-free" in the simulator.
 
 ### No route
-_TODO_
+
+When A* finds no path, I **publish an empty path**, which `rover.py` treats as
+"stop". I then retry every tick, without republishing the empty path while
+there's still no route.
+
+In `goal-blocked`, a box lands on the goal at tick 102. My path becomes invalid
+that same tick, A* finds the goal occupied and returns `None`, and I publish an
+empty path (the scorer records a `stop`). I retry each tick until tick 142, the
+tick the box clears, and publish a 6.9 m path (scorer: `recovery`). The rover
+waited about 8 s and reached the goal with **0 blocked ticks**.
+
+If I published nothing, the rover would keep following its last path, which
+leads straight into the box over the goal. Every tick of that would be a
+blocked tick, because the rover only stops for an empty path or a collision.
 
 ### Time
-_TODO_
+
+The monitoring output uses **simulated time, `msg.header.stamp`**. Status
+lines print about once per simulated second, plus a line on every plan, and
+"time since last replan" is `stamp − last_replan_stamp`.
+
+The simulator doesn't wait for the wall clock: a whole 25 s run finishes in a
+fraction of a second. `time.time()` would report near-zero gaps between replans
+that are seconds apart in the rover's world, and would give different numbers
+with and without `--visualize`, which slows the sim to real time.
 
 ### Ambiguity
-_TODO_
 
-### Testing
-_TODO_
+Calls I had to make where the task left room:
+
+- **Inflate before checking validity, or check the raw grid?** The docstring
+  leaves it open. I check the **inflated** grid, because that matches the
+  scorer's own "on or beside an obstacle" rule exactly (see Replan trigger),
+  and a raw-grid check would keep a path "valid" while it skims a rock.
+- **Square or circular inflation?** Either passes the tests. I chose
+  **circular**: it's less conservative (it doesn't block diagonal neighbours),
+  and I checked against `world.py` that it's still collision-free (0.354 m >
+  0.3 m body).
+- **How wide is the border wall?** Computed from the radius (cells whose centre
+  is closer than `robot_radius_m` to the edge), which is 1 ring here.
+- **Which waypoint does "ahead" start at?** `idx + 1`, the waypoint after the
+  one nearest the rover, for the reason in Replan trigger.
+- **When to retry after no route?** Every tick: A* fails instantly when the goal
+  is occupied, so it's cheap, and the goal can clear at any time. I don't
+  republish an unchanged empty path.
+- **What counts as a "replan" in my counter?** I followed `scoring.py`: only a
+  non-empty path replacing a non-empty one. A path after a stop is a recovery,
+  not a replan. That's why my count matches the scoreboard in every run.
+- **What does the path start and end with?** The rover's cell centre and the
+  goal's cell centre, as the `plan` docstring asks. The rover joins the path at
+  its nearest point (`rover.py`, within 0.75 m), and the rover's cell centre is
+  always within 0.36 m.
 
 ### Stretch goals
-_TODO_
+
+I didn't attempt the stretch goals; I focused on making Part 1 correct and
+explaining it. My planner ignores `confidence` entirely, which is correct for
+the clean sensor but would chase every phantom obstacle under `--noise`. What
+I'd try first for 2A is in `METHODOLOGY.md` under Known limitations.
 
 ---
 
